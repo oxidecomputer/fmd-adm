@@ -549,3 +549,135 @@ impl Stat {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── Unit tests (pure logic, no daemon needed) ──
+
+    #[test]
+    fn stat_value_display_bool() {
+        assert_eq!(StatValue::Bool(true).to_string(), "true");
+        assert_eq!(StatValue::Bool(false).to_string(), "false");
+    }
+
+    #[test]
+    fn stat_value_display_integers() {
+        assert_eq!(StatValue::Int32(-42).to_string(), "-42");
+        assert_eq!(StatValue::UInt32(42).to_string(), "42");
+        assert_eq!(StatValue::Int64(-100).to_string(), "-100");
+        assert_eq!(StatValue::UInt64(100).to_string(), "100");
+    }
+
+    #[test]
+    fn stat_value_display_time() {
+        assert_eq!(StatValue::Time(1_000_000_000).to_string(), "1000000000ns");
+    }
+
+    #[test]
+    fn stat_value_display_size() {
+        assert_eq!(StatValue::Size(4096).to_string(), "4096B");
+    }
+
+    #[test]
+    fn stat_value_display_string() {
+        assert_eq!(StatValue::String("hello".into()).to_string(), "hello");
+    }
+
+    #[test]
+    fn stat_value_display_unknown() {
+        let v = StatValue::Unknown {
+            type_code: 99,
+            raw: 0xdead,
+        };
+        assert_eq!(v.to_string(), "unknown(type=99, raw=57005)");
+    }
+
+    #[test]
+    fn transport_id_display() {
+        assert_eq!(TransportId(7).to_string(), "7");
+    }
+
+    // ── Integration tests (require a running fmd daemon) ──
+
+    #[test]
+    fn open_and_close() {
+        let _adm = FmdAdm::open().expect("failed to open fmd handle");
+    }
+
+    #[test]
+    fn list_modules() {
+        let adm = FmdAdm::open().expect("failed to open fmd handle");
+        let modules = adm.modules().expect("failed to list modules");
+        assert!(!modules.is_empty(), "fmd should always have modules loaded");
+    }
+
+    #[test]
+    fn list_resources() {
+        let adm = FmdAdm::open().expect("failed to open fmd handle");
+        let _resources = adm.resources(false).expect("failed to list resources");
+        let _all = adm.resources(true).expect("failed to list all resources");
+    }
+
+    #[test]
+    fn resource_count_matches_resources() {
+        let adm = FmdAdm::open().expect("failed to open fmd handle");
+        let count = adm
+            .resource_count(false)
+            .expect("failed to get resource count");
+        let resources = adm.resources(false).expect("failed to list resources");
+        assert_eq!(
+            count as usize,
+            resources.len(),
+            "resource_count should match resources().len()"
+        );
+    }
+
+    #[test]
+    fn list_cases() {
+        let adm = FmdAdm::open().expect("failed to open fmd handle");
+        let _cases = adm.cases(None).expect("failed to list cases");
+    }
+
+    #[test]
+    fn list_transports() {
+        let adm = FmdAdm::open().expect("failed to open fmd handle");
+        let _transports = adm.transports().expect("failed to list transports");
+    }
+
+    #[test]
+    fn read_global_stats() {
+        let adm = FmdAdm::open().expect("failed to open fmd handle");
+        let stats = adm.stats(None).expect("failed to read global stats");
+        assert!(!stats.is_empty(), "global stats should not be empty");
+    }
+
+    #[test]
+    fn read_per_module_stats() {
+        let adm = FmdAdm::open().expect("failed to open fmd handle");
+        let modules = adm.modules().expect("failed to list modules");
+        // Read stats for the first module.
+        let module = &modules[0];
+        let stats = adm
+            .stats(Some(&module.name))
+            .expect("failed to read module stats");
+        assert!(
+            !stats.is_empty(),
+            "module '{}' should have stats",
+            module.name
+        );
+    }
+
+    #[test]
+    fn serd_engines_for_modules() {
+        let adm = FmdAdm::open().expect("failed to open fmd handle");
+        let modules = adm.modules().expect("failed to list modules");
+        // Just verify the call succeeds for each module (most won't have SERD engines).
+        for module in &modules {
+            let _engines = adm
+                .serd_engines(&module.name)
+                .expect(&format!("failed to get SERD engines for {}", module.name));
+        }
+    }
+}
