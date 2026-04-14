@@ -6,13 +6,11 @@ use std::os::raw::c_void;
 use uuid::Uuid;
 
 use fmd_adm_sys::{
-    fmd_adm_caseinfo_t, fmd_adm_close, fmd_adm_errmsg, fmd_adm_modinfo_t,
-    fmd_adm_rsrcinfo_t, fmd_adm_serdinfo_t, fmd_adm_stats_t, fmd_adm_t,
-    fmd_stat_t, FMD_ADM_MOD_FAILED, FMD_ADM_PROGRAM, FMD_ADM_RSRC_FAULTY,
-    FMD_ADM_RSRC_INVISIBLE, FMD_ADM_RSRC_UNUSABLE, FMD_ADM_SERD_FIRED,
-    FMD_ADM_VERSION, FMD_TYPE_BOOL, FMD_TYPE_INT32, FMD_TYPE_INT64,
-    FMD_TYPE_SIZE, FMD_TYPE_STRING, FMD_TYPE_TIME, FMD_TYPE_UINT32,
-    FMD_TYPE_UINT64,
+    FMD_ADM_MOD_FAILED, FMD_ADM_PROGRAM, FMD_ADM_RSRC_FAULTY, FMD_ADM_RSRC_INVISIBLE,
+    FMD_ADM_RSRC_UNUSABLE, FMD_ADM_SERD_FIRED, FMD_ADM_VERSION, FMD_TYPE_BOOL, FMD_TYPE_INT32,
+    FMD_TYPE_INT64, FMD_TYPE_SIZE, FMD_TYPE_STRING, FMD_TYPE_TIME, FMD_TYPE_UINT32,
+    FMD_TYPE_UINT64, fmd_adm_caseinfo_t, fmd_adm_close, fmd_adm_errmsg, fmd_adm_modinfo_t,
+    fmd_adm_rsrcinfo_t, fmd_adm_serdinfo_t, fmd_adm_stats_t, fmd_adm_t, fmd_stat_t,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -28,19 +26,37 @@ pub enum Error {
 }
 
 /// A handle to the Fault Management Daemon administrative interface.
+///
+/// This handle wraps a C `fmd_adm_t` pointer that is not thread-safe.
+/// `FmdAdm` is `!Send` and `!Sync` — it cannot be shared across threads.
+///
+/// All iterator methods (`modules()`, `cases()`, `resources()`, etc.)
+/// eagerly collect results into a `Vec`. The underlying C API uses
+/// callbacks that own the data only for the duration of each
+/// invocation, so results must be copied before the callback returns.
 pub struct FmdAdm {
     handle: *mut fmd_adm_t,
+}
+
+/// Safely convert a C string pointer to an owned `String`.
+/// Returns an empty string if the pointer is null.
+///
+/// # Safety
+///
+/// If non-null, `p` must point to a valid, nul-terminated C string.
+unsafe fn cstr_to_owned(p: *const std::os::raw::c_char) -> String {
+    if p.is_null() {
+        String::new()
+    } else {
+        unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned()
+    }
 }
 
 impl FmdAdm {
     /// Open a connection to the local fault management daemon.
     pub fn open() -> Result<Self, Error> {
         let handle = unsafe {
-            fmd_adm_sys::fmd_adm_open(
-                std::ptr::null(),
-                FMD_ADM_PROGRAM,
-                FMD_ADM_VERSION as i32,
-            )
+            fmd_adm_sys::fmd_adm_open(std::ptr::null(), FMD_ADM_PROGRAM, FMD_ADM_VERSION as i32)
         };
         if handle.is_null() {
             return Err(Error::Open);
@@ -64,23 +80,19 @@ impl FmdAdm {
         unsafe extern "C" fn callback(
             info: *const fmd_adm_modinfo_t,
             arg: *mut c_void,
-        ) -> std::os::raw::c_int { unsafe {
-            let vec = &mut *(arg as *mut Vec<ModuleInfo>);
-            let info = &*info;
-            vec.push(ModuleInfo {
-                name: CStr::from_ptr(info.ami_name)
-                    .to_string_lossy()
-                    .into_owned(),
-                description: CStr::from_ptr(info.ami_desc)
-                    .to_string_lossy()
-                    .into_owned(),
-                version: CStr::from_ptr(info.ami_vers)
-                    .to_string_lossy()
-                    .into_owned(),
-                failed: (info.ami_flags & FMD_ADM_MOD_FAILED) != 0,
-            });
-            0
-        }}
+        ) -> std::os::raw::c_int {
+            unsafe {
+                let vec = &mut *(arg as *mut Vec<ModuleInfo>);
+                let info = &*info;
+                vec.push(ModuleInfo {
+                    name: cstr_to_owned(info.ami_name),
+                    description: cstr_to_owned(info.ami_desc),
+                    version: cstr_to_owned(info.ami_vers),
+                    failed: (info.ami_flags & FMD_ADM_MOD_FAILED) != 0,
+                });
+                0
+            }
+        }
 
         let rc = unsafe {
             fmd_adm_sys::fmd_adm_module_iter(
@@ -93,54 +105,6 @@ impl FmdAdm {
             return Err(Error::Fmd(self.errmsg()));
         }
         Ok(results)
-    }
-
-    /// Load an FMD module by path.
-    pub fn module_load(&self, path: &str) -> Result<(), Error> {
-        let path = CString::new(path)?;
-        let rc = unsafe {
-            fmd_adm_sys::fmd_adm_module_load(self.handle, path.as_ptr())
-        };
-        if rc != 0 {
-            return Err(Error::Fmd(self.errmsg()));
-        }
-        Ok(())
-    }
-
-    /// Unload an FMD module by name.
-    pub fn module_unload(&self, name: &str) -> Result<(), Error> {
-        let name = CString::new(name)?;
-        let rc = unsafe {
-            fmd_adm_sys::fmd_adm_module_unload(self.handle, name.as_ptr())
-        };
-        if rc != 0 {
-            return Err(Error::Fmd(self.errmsg()));
-        }
-        Ok(())
-    }
-
-    /// Reset an FMD module by name.
-    pub fn module_reset(&self, name: &str) -> Result<(), Error> {
-        let name = CString::new(name)?;
-        let rc = unsafe {
-            fmd_adm_sys::fmd_adm_module_reset(self.handle, name.as_ptr())
-        };
-        if rc != 0 {
-            return Err(Error::Fmd(self.errmsg()));
-        }
-        Ok(())
-    }
-
-    /// Garbage-collect an FMD module by name.
-    pub fn module_gc(&self, name: &str) -> Result<(), Error> {
-        let name = CString::new(name)?;
-        let rc = unsafe {
-            fmd_adm_sys::fmd_adm_module_gc(self.handle, name.as_ptr())
-        };
-        if rc != 0 {
-            return Err(Error::Fmd(self.errmsg()));
-        }
-        Ok(())
     }
 
     /// Iterate over faulty resources.
@@ -161,23 +125,19 @@ impl FmdAdm {
         unsafe extern "C" fn callback(
             info: *const fmd_adm_rsrcinfo_t,
             arg: *mut c_void,
-        ) -> std::os::raw::c_int { unsafe {
-            let vec = &mut *(arg as *mut Vec<RawResourceInfo>);
-            let info = &*info;
-            vec.push(RawResourceInfo {
-                fmri: CStr::from_ptr(info.ari_fmri)
-                    .to_string_lossy()
-                    .into_owned(),
-                uuid: CStr::from_ptr(info.ari_uuid)
-                    .to_string_lossy()
-                    .into_owned(),
-                case: CStr::from_ptr(info.ari_case)
-                    .to_string_lossy()
-                    .into_owned(),
-                flags: info.ari_flags,
-            });
-            0
-        }}
+        ) -> std::os::raw::c_int {
+            unsafe {
+                let vec = &mut *(arg as *mut Vec<RawResourceInfo>);
+                let info = &*info;
+                vec.push(RawResourceInfo {
+                    fmri: cstr_to_owned(info.ari_fmri),
+                    uuid: cstr_to_owned(info.ari_uuid),
+                    case: cstr_to_owned(info.ari_case),
+                    flags: info.ari_flags,
+                });
+                0
+            }
+        }
 
         let rc = unsafe {
             fmd_adm_sys::fmd_adm_rsrc_iter(
@@ -209,11 +169,7 @@ impl FmdAdm {
     pub fn resource_count(&self, all: bool) -> Result<u32, Error> {
         let mut count: u32 = 0;
         let rc = unsafe {
-            fmd_adm_sys::fmd_adm_rsrc_count(
-                self.handle,
-                if all { 1 } else { 0 },
-                &mut count,
-            )
+            fmd_adm_sys::fmd_adm_rsrc_count(self.handle, if all { 1 } else { 0 }, &mut count)
         };
         if rc != 0 {
             return Err(Error::Fmd(self.errmsg()));
@@ -222,11 +178,9 @@ impl FmdAdm {
     }
 
     /// Mark a resource (by FMRI) as repaired.
-    pub fn resource_repaired(&self, fmri: &str) -> Result<(), Error> {
+    pub fn resource_repaired(&mut self, fmri: &str) -> Result<(), Error> {
         let fmri = CString::new(fmri)?;
-        let rc = unsafe {
-            fmd_adm_sys::fmd_adm_rsrc_repaired(self.handle, fmri.as_ptr())
-        };
+        let rc = unsafe { fmd_adm_sys::fmd_adm_rsrc_repaired(self.handle, fmri.as_ptr()) };
         if rc != 0 {
             return Err(Error::Fmd(self.errmsg()));
         }
@@ -234,50 +188,21 @@ impl FmdAdm {
     }
 
     /// Mark a resource (by FMRI) as replaced.
-    pub fn resource_replaced(&self, fmri: &str) -> Result<(), Error> {
+    pub fn resource_replaced(&mut self, fmri: &str) -> Result<(), Error> {
         let fmri = CString::new(fmri)?;
-        let rc = unsafe {
-            fmd_adm_sys::fmd_adm_rsrc_replaced(self.handle, fmri.as_ptr())
-        };
+        let rc = unsafe { fmd_adm_sys::fmd_adm_rsrc_replaced(self.handle, fmri.as_ptr()) };
         if rc != 0 {
             return Err(Error::Fmd(self.errmsg()));
         }
         Ok(())
     }
 
-    /// Acquit a resource (by FMRI), optionally specifying a case UUID.
-    ///
-    /// If `case_uuid` is `None`, the resource is acquitted across all cases.
-    pub fn resource_acquit(
-        &self,
-        fmri: &str,
-        case_uuid: Option<&Uuid>,
-    ) -> Result<(), Error> {
+    /// Acquit a resource (by FMRI) for a specific case UUID.
+    pub fn resource_acquit(&mut self, fmri: &str, case_uuid: &Uuid) -> Result<(), Error> {
         let fmri = CString::new(fmri)?;
-        let uuid_str = case_uuid.map(|u| CString::new(u.to_string()));
-        let uuid_c = uuid_str.transpose()?;
-        let uuid_ptr = uuid_c
-            .as_ref()
-            .map(|c| c.as_ptr())
-            .unwrap_or(std::ptr::null());
+        let uuid_c = CString::new(case_uuid.to_string())?;
         let rc = unsafe {
-            fmd_adm_sys::fmd_adm_rsrc_acquit(
-                self.handle,
-                fmri.as_ptr(),
-                uuid_ptr,
-            )
-        };
-        if rc != 0 {
-            return Err(Error::Fmd(self.errmsg()));
-        }
-        Ok(())
-    }
-
-    /// Flush cached state for a resource (by FMRI).
-    pub fn resource_flush(&self, fmri: &str) -> Result<(), Error> {
-        let fmri = CString::new(fmri)?;
-        let rc = unsafe {
-            fmd_adm_sys::fmd_adm_rsrc_flush(self.handle, fmri.as_ptr())
+            fmd_adm_sys::fmd_adm_rsrc_acquit(self.handle, fmri.as_ptr(), uuid_c.as_ptr())
         };
         if rc != 0 {
             return Err(Error::Fmd(self.errmsg()));
@@ -286,10 +211,7 @@ impl FmdAdm {
     }
 
     /// Iterate over cases, optionally filtered by URL.
-    pub fn cases(
-        &self,
-        url: Option<&str>,
-    ) -> Result<Vec<CaseInfo>, Error> {
+    pub fn cases(&self, url: Option<&str>) -> Result<Vec<CaseInfo>, Error> {
         struct RawCaseInfo {
             uuid: String,
             code: String,
@@ -303,30 +225,29 @@ impl FmdAdm {
         unsafe extern "C" fn callback(
             info: *const fmd_adm_caseinfo_t,
             arg: *mut c_void,
-        ) -> std::os::raw::c_int { unsafe {
-            let vec = &mut *(arg as *mut Vec<RawCaseInfo>);
-            let info = &*info;
-            let event = if info.aci_event.is_null() {
-                None
-            } else {
-                // If from_raw fails, skip the event rather than
-                // aborting the entire iteration.
-                NvList::from_raw(info.aci_event.cast()).ok()
-            };
-            vec.push(RawCaseInfo {
-                uuid: CStr::from_ptr(info.aci_uuid)
-                    .to_string_lossy()
-                    .into_owned(),
-                code: CStr::from_ptr(info.aci_code)
-                    .to_string_lossy()
-                    .into_owned(),
-                url: CStr::from_ptr(info.aci_url)
-                    .to_string_lossy()
-                    .into_owned(),
-                event,
-            });
-            0
-        }}
+        ) -> std::os::raw::c_int {
+            unsafe {
+                let vec = &mut *(arg as *mut Vec<RawCaseInfo>);
+                let info = &*info;
+                let event = if info.aci_event.is_null() {
+                    None
+                } else {
+                    // SAFETY: from_raw borrows the nvlist and deep-copies
+                    // all values into owned Rust types. It does not take
+                    // ownership or free the pointer — fmd_adm_case_iter
+                    // remains responsible for calling nvlist_free after
+                    // this callback returns.
+                    NvList::from_raw(info.aci_event.cast()).ok()
+                };
+                vec.push(RawCaseInfo {
+                    uuid: cstr_to_owned(info.aci_uuid),
+                    code: cstr_to_owned(info.aci_code),
+                    url: cstr_to_owned(info.aci_url),
+                    event,
+                });
+                0
+            }
+        }
 
         let url_ptr = url_c
             .as_ref()
@@ -357,24 +278,10 @@ impl FmdAdm {
             .collect()
     }
 
-    /// Repair a case by UUID.
-    pub fn case_repair(&self, uuid: &Uuid) -> Result<(), Error> {
-        let uuid = CString::new(uuid.to_string())?;
-        let rc = unsafe {
-            fmd_adm_sys::fmd_adm_case_repair(self.handle, uuid.as_ptr())
-        };
-        if rc != 0 {
-            return Err(Error::Fmd(self.errmsg()));
-        }
-        Ok(())
-    }
-
     /// Acquit a case by UUID.
-    pub fn case_acquit(&self, uuid: &Uuid) -> Result<(), Error> {
+    pub fn case_acquit(&mut self, uuid: &Uuid) -> Result<(), Error> {
         let uuid = CString::new(uuid.to_string())?;
-        let rc = unsafe {
-            fmd_adm_sys::fmd_adm_case_acquit(self.handle, uuid.as_ptr())
-        };
+        let rc = unsafe { fmd_adm_sys::fmd_adm_case_acquit(self.handle, uuid.as_ptr()) };
         if rc != 0 {
             return Err(Error::Fmd(self.errmsg()));
         }
@@ -382,31 +289,28 @@ impl FmdAdm {
     }
 
     /// Iterate over SERD engines for a module.
-    pub fn serd_engines(
-        &self,
-        module: &str,
-    ) -> Result<Vec<SerdInfo>, Error> {
+    pub fn serd_engines(&self, module: &str) -> Result<Vec<SerdInfo>, Error> {
         let mut results: Vec<SerdInfo> = Vec::new();
         let module = CString::new(module)?;
 
         unsafe extern "C" fn callback(
             info: *const fmd_adm_serdinfo_t,
             arg: *mut c_void,
-        ) -> std::os::raw::c_int { unsafe {
-            let vec = &mut *(arg as *mut Vec<SerdInfo>);
-            let info = &*info;
-            vec.push(SerdInfo {
-                name: CStr::from_ptr(info.asi_name)
-                    .to_string_lossy()
-                    .into_owned(),
-                delta_ns: info.asi_delta,
-                n: info.asi_n,
-                t_ns: info.asi_t,
-                count: info.asi_count,
-                fired: (info.asi_flags & FMD_ADM_SERD_FIRED) != 0,
-            });
-            0
-        }}
+        ) -> std::os::raw::c_int {
+            unsafe {
+                let vec = &mut *(arg as *mut Vec<SerdInfo>);
+                let info = &*info;
+                vec.push(SerdInfo {
+                    name: cstr_to_owned(info.asi_name),
+                    delta_ns: info.asi_delta,
+                    n: info.asi_n,
+                    t_ns: info.asi_t,
+                    count: info.asi_count,
+                    fired: (info.asi_flags & FMD_ADM_SERD_FIRED) != 0,
+                });
+                0
+            }
+        }
 
         let rc = unsafe {
             fmd_adm_sys::fmd_adm_serd_iter(
@@ -422,38 +326,16 @@ impl FmdAdm {
         Ok(results)
     }
 
-    /// Reset a SERD engine.
-    pub fn serd_reset(
-        &self,
-        module: &str,
-        name: &str,
-    ) -> Result<(), Error> {
-        let module = CString::new(module)?;
-        let name = CString::new(name)?;
-        let rc = unsafe {
-            fmd_adm_sys::fmd_adm_serd_reset(
-                self.handle,
-                module.as_ptr(),
-                name.as_ptr(),
-            )
-        };
-        if rc != 0 {
-            return Err(Error::Fmd(self.errmsg()));
-        }
-        Ok(())
-    }
-
     /// Iterate over transports.
     pub fn transports(&self) -> Result<Vec<TransportId>, Error> {
         let mut results: Vec<TransportId> = Vec::new();
 
-        unsafe extern "C" fn callback(
-            id: fmd_adm_sys::id_t,
-            arg: *mut c_void,
-        ) { unsafe {
-            let vec = &mut *(arg as *mut Vec<TransportId>);
-            vec.push(TransportId(id));
-        }}
+        unsafe extern "C" fn callback(id: fmd_adm_sys::id_t, arg: *mut c_void) {
+            unsafe {
+                let vec = &mut *(arg as *mut Vec<TransportId>);
+                vec.push(TransportId(id));
+            }
+        }
 
         let rc = unsafe {
             fmd_adm_sys::fmd_adm_xprt_iter(
@@ -469,10 +351,7 @@ impl FmdAdm {
     }
 
     /// Read statistics, optionally for a specific module.
-    pub fn stats(
-        &self,
-        module: Option<&str>,
-    ) -> Result<Vec<Stat>, Error> {
+    pub fn stats(&self, module: Option<&str>) -> Result<Vec<Stat>, Error> {
         let module_c = module.map(CString::new).transpose()?;
         let module_ptr = module_c
             .as_ref()
@@ -484,42 +363,41 @@ impl FmdAdm {
             ams_len: 0,
         };
 
-        let rc = unsafe {
-            fmd_adm_sys::fmd_adm_stats_read(
-                self.handle,
-                module_ptr,
-                &mut raw_stats,
-            )
-        };
+        let rc =
+            unsafe { fmd_adm_sys::fmd_adm_stats_read(self.handle, module_ptr, &mut raw_stats) };
         if rc != 0 {
             return Err(Error::Fmd(self.errmsg()));
         }
 
-        let stats = unsafe {
-            let slice = std::slice::from_raw_parts(
-                raw_stats.ams_buf,
-                raw_stats.ams_len as usize,
-            );
-            slice.iter().map(|s| Stat::from_raw(s)).collect()
+        // Ensure stats_free runs even if from_raw or collect panics.
+        struct StatsGuard<'a> {
+            handle: *mut fmd_adm_t,
+            raw: &'a mut fmd_adm_stats_t,
+        }
+        impl Drop for StatsGuard<'_> {
+            fn drop(&mut self) {
+                unsafe {
+                    fmd_adm_sys::fmd_adm_stats_free(self.handle, self.raw);
+                }
+            }
+        }
+        let guard = StatsGuard {
+            handle: self.handle,
+            raw: &mut raw_stats,
         };
 
-        unsafe {
-            fmd_adm_sys::fmd_adm_stats_free(self.handle, &mut raw_stats);
-        }
+        let len = guard.raw.ams_len as usize;
+        let stats = if len == 0 || guard.raw.ams_buf.is_null() {
+            Vec::new()
+        } else {
+            let slice = unsafe { std::slice::from_raw_parts(guard.raw.ams_buf, len) };
+            slice.iter().map(|s| unsafe { Stat::from_raw(s) }).collect()
+        };
+
+        // Explicitly drop to free the C buffer before returning.
+        drop(guard);
 
         Ok(stats)
-    }
-
-    /// Rotate a log file.
-    pub fn log_rotate(&self, log: &str) -> Result<(), Error> {
-        let log = CString::new(log)?;
-        let rc = unsafe {
-            fmd_adm_sys::fmd_adm_log_rotate(self.handle, log.as_ptr())
-        };
-        if rc != 0 {
-            return Err(Error::Fmd(self.errmsg()));
-        }
-        Ok(())
     }
 }
 
@@ -600,7 +478,10 @@ pub enum StatValue {
     Size(u64),
     String(String),
     /// A stat type not recognized by this crate.
-    Unknown { type_code: u32, raw: u64 },
+    Unknown {
+        type_code: u32,
+        raw: u64,
+    },
 }
 
 impl std::fmt::Display for StatValue {
@@ -633,37 +514,38 @@ impl Stat {
     ///
     /// # Safety
     /// The `fmd_stat_t` must have been obtained from a valid fmd call.
-    unsafe fn from_raw(raw: &fmd_stat_t) -> Self { unsafe {
-        let name = CStr::from_ptr(raw.fmds_name.as_ptr())
+    unsafe fn from_raw(raw: &fmd_stat_t) -> Self {
+        let name = unsafe { CStr::from_ptr(raw.fmds_name.as_ptr()) }
             .to_string_lossy()
             .into_owned();
-        let description = CStr::from_ptr(raw.fmds_desc.as_ptr())
+        let description = unsafe { CStr::from_ptr(raw.fmds_desc.as_ptr()) }
             .to_string_lossy()
             .into_owned();
         let value = match raw.fmds_type {
-            FMD_TYPE_BOOL => StatValue::Bool(raw.fmds_value.bool_ != 0),
-            FMD_TYPE_INT32 => StatValue::Int32(raw.fmds_value.i32_),
-            FMD_TYPE_UINT32 => StatValue::UInt32(raw.fmds_value.ui32),
-            FMD_TYPE_INT64 => StatValue::Int64(raw.fmds_value.i64_),
-            FMD_TYPE_UINT64 => StatValue::UInt64(raw.fmds_value.ui64),
-            FMD_TYPE_TIME => StatValue::Time(raw.fmds_value.ui64),
-            FMD_TYPE_SIZE => StatValue::Size(raw.fmds_value.ui64),
+            FMD_TYPE_BOOL => StatValue::Bool(unsafe { raw.fmds_value.bool_ } != 0),
+            FMD_TYPE_INT32 => StatValue::Int32(unsafe { raw.fmds_value.i32_ }),
+            FMD_TYPE_UINT32 => StatValue::UInt32(unsafe { raw.fmds_value.ui32 }),
+            FMD_TYPE_INT64 => StatValue::Int64(unsafe { raw.fmds_value.i64_ }),
+            FMD_TYPE_UINT64 => StatValue::UInt64(unsafe { raw.fmds_value.ui64 }),
+            FMD_TYPE_TIME => StatValue::Time(unsafe { raw.fmds_value.ui64 }),
+            FMD_TYPE_SIZE => StatValue::Size(unsafe { raw.fmds_value.ui64 }),
             FMD_TYPE_STRING => {
-                if raw.fmds_value.str_.is_null() {
+                let p = unsafe { raw.fmds_value.str_ };
+                if p.is_null() {
                     StatValue::String(String::new())
                 } else {
-                    StatValue::String(
-                        CStr::from_ptr(raw.fmds_value.str_)
-                            .to_string_lossy()
-                            .into_owned(),
-                    )
+                    StatValue::String(unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned())
                 }
             }
             other => StatValue::Unknown {
                 type_code: other,
-                raw: raw.fmds_value.ui64,
+                raw: unsafe { raw.fmds_value.ui64 },
             },
         };
-        Self { name, description, value }
-    }}
+        Self {
+            name,
+            description,
+            value,
+        }
+    }
 }

@@ -12,11 +12,7 @@ fn main() {
         resources.len(),
         count,
     );
-    assert_eq!(
-        resources.len(),
-        count as usize,
-        "resource count mismatch!"
-    );
+    assert_eq!(resources.len(), count as usize, "resource count mismatch!");
 
     // Transports
     println!("\n=== Transports ===");
@@ -34,8 +30,9 @@ fn main() {
     let modules = adm.modules().expect("failed to list modules");
     let mut total = 0;
     for m in &modules {
-        let engines =
-            adm.serd_engines(&m.name).expect("failed to list serd engines");
+        let engines = adm
+            .serd_engines(&m.name)
+            .expect("failed to list serd engines");
         if !engines.is_empty() {
             println!("  {} ({} engines):", m.name, engines.len());
             for e in &engines {
@@ -61,8 +58,9 @@ fn main() {
     // Per-module stats for the first module
     if let Some(m) = modules.first() {
         println!("\n=== Stats for {} ===", m.name);
-        let mstats =
-            adm.stats(Some(&m.name)).expect("failed to read module stats");
+        let mstats = adm
+            .stats(Some(&m.name))
+            .expect("failed to read module stats");
         for s in &mstats {
             println!("  {}: {} ({})", s.name, s.value, s.description);
         }

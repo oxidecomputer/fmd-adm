@@ -28,16 +28,13 @@ for case in adm.cases(None).unwrap() {
 All operations go through the `FmdAdm` handle, which connects to the local
 fault management daemon on construction and disconnects on drop.
 
-- **Modules**: `modules()`, `module_load()`, `module_unload()`,
-  `module_reset()`, `module_gc()`
+- **Modules**: `modules()`
 - **Resources**: `resources()`, `resource_count()`,
-  `resource_repaired()`, `resource_replaced()`, `resource_acquit()`,
-  `resource_flush()`
-- **Cases**: `cases()`, `case_repair()`, `case_acquit()`
-- **SERD engines**: `serd_engines()`, `serd_reset()`
+  `resource_repaired()`, `resource_replaced()`, `resource_acquit()`
+- **Cases**: `cases()`, `case_acquit()`
+- **SERD engines**: `serd_engines()`
 - **Transports**: `transports()`
 - **Statistics**: `stats()`
-- **Log rotation**: `log_rotate()`
 
 ## Privileges
 
