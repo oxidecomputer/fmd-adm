@@ -1,13 +1,13 @@
 [package]
 name = "fmd-adm"
-version = "0.1.0"
-edition = "2021"
+version = "0.2.0"
+edition = "2024"
 description = "Idiomatic Rust bindings for illumos libfmd_adm"
 license = "MPL-2.0"
 repository = "https://github.com/oxidecomputer/fmd-adm"
 
 [dependencies]
-fmd-adm-sys = { version = "0.1.0", path = "../fmd-adm-sys" }
+fmd-adm-sys = { version = "0.2.0", path = "../fmd-adm-sys" }
 libc = "0.2"
 illumos-nvpair = "0.3.0"
 thiserror = "2"

@@ -64,7 +64,7 @@ impl FmdAdm {
         unsafe extern "C" fn callback(
             info: *const fmd_adm_modinfo_t,
             arg: *mut c_void,
-        ) -> std::os::raw::c_int {
+        ) -> std::os::raw::c_int { unsafe {
             let vec = &mut *(arg as *mut Vec<ModuleInfo>);
             let info = &*info;
             vec.push(ModuleInfo {
@@ -80,7 +80,7 @@ impl FmdAdm {
                 failed: (info.ami_flags & FMD_ADM_MOD_FAILED) != 0,
             });
             0
-        }
+        }}
 
         let rc = unsafe {
             fmd_adm_sys::fmd_adm_module_iter(
@@ -161,7 +161,7 @@ impl FmdAdm {
         unsafe extern "C" fn callback(
             info: *const fmd_adm_rsrcinfo_t,
             arg: *mut c_void,
-        ) -> std::os::raw::c_int {
+        ) -> std::os::raw::c_int { unsafe {
             let vec = &mut *(arg as *mut Vec<RawResourceInfo>);
             let info = &*info;
             vec.push(RawResourceInfo {
@@ -177,7 +177,7 @@ impl FmdAdm {
                 flags: info.ari_flags,
             });
             0
-        }
+        }}
 
         let rc = unsafe {
             fmd_adm_sys::fmd_adm_rsrc_iter(
@@ -303,7 +303,7 @@ impl FmdAdm {
         unsafe extern "C" fn callback(
             info: *const fmd_adm_caseinfo_t,
             arg: *mut c_void,
-        ) -> std::os::raw::c_int {
+        ) -> std::os::raw::c_int { unsafe {
             let vec = &mut *(arg as *mut Vec<RawCaseInfo>);
             let info = &*info;
             let event = if info.aci_event.is_null() {
@@ -326,7 +326,7 @@ impl FmdAdm {
                 event,
             });
             0
-        }
+        }}
 
         let url_ptr = url_c
             .as_ref()
@@ -392,7 +392,7 @@ impl FmdAdm {
         unsafe extern "C" fn callback(
             info: *const fmd_adm_serdinfo_t,
             arg: *mut c_void,
-        ) -> std::os::raw::c_int {
+        ) -> std::os::raw::c_int { unsafe {
             let vec = &mut *(arg as *mut Vec<SerdInfo>);
             let info = &*info;
             vec.push(SerdInfo {
@@ -406,7 +406,7 @@ impl FmdAdm {
                 fired: (info.asi_flags & FMD_ADM_SERD_FIRED) != 0,
             });
             0
-        }
+        }}
 
         let rc = unsafe {
             fmd_adm_sys::fmd_adm_serd_iter(
@@ -450,10 +450,10 @@ impl FmdAdm {
         unsafe extern "C" fn callback(
             id: fmd_adm_sys::id_t,
             arg: *mut c_void,
-        ) {
+        ) { unsafe {
             let vec = &mut *(arg as *mut Vec<TransportId>);
             vec.push(TransportId(id));
-        }
+        }}
 
         let rc = unsafe {
             fmd_adm_sys::fmd_adm_xprt_iter(
@@ -633,7 +633,7 @@ impl Stat {
     ///
     /// # Safety
     /// The `fmd_stat_t` must have been obtained from a valid fmd call.
-    unsafe fn from_raw(raw: &fmd_stat_t) -> Self {
+    unsafe fn from_raw(raw: &fmd_stat_t) -> Self { unsafe {
         let name = CStr::from_ptr(raw.fmds_name.as_ptr())
             .to_string_lossy()
             .into_owned();
@@ -665,5 +665,5 @@ impl Stat {
             },
         };
         Self { name, description, value }
-    }
+    }}
 }
