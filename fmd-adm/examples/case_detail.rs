@@ -26,14 +26,18 @@ fn main() {
     let adm = FmdAdm::open().expect("failed to open fmd adm handle");
     let cases = adm.cases(None).expect("failed to list cases");
 
-    if let Some(c) = cases.first() {
-        println!("Case {} ({})\n", c.uuid, c.code);
+    if cases.is_empty() {
+        println!("No cases found.");
+        return;
+    }
+
+    for c in &cases {
+        println!("Case {} ({})", c.uuid, c.code);
         if let Some(event) = &c.event {
-            print_nvlist(event, 0);
+            print_nvlist(event, 1);
         } else {
             println!("  (no event data)");
         }
-    } else {
-        println!("No cases found.");
+        println!();
     }
 }
