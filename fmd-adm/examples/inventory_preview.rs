@@ -35,8 +35,7 @@ fn nvvalue_to_json(value: &NvValue) -> serde_json::Value {
         NvValue::UInt64Array(arr) => serde_json::json!(arr),
         NvValue::StringArray(arr) => serde_json::json!(arr),
         NvValue::NvListArray(arr) => {
-            let items: Vec<serde_json::Value> =
-                arr.iter().map(nvlist_to_json).collect();
+            let items: Vec<serde_json::Value> = arr.iter().map(nvlist_to_json).collect();
             serde_json::Value::Array(items)
         }
         NvValue::Unknown { type_code } => {
@@ -97,8 +96,5 @@ fn main() {
         }
     });
 
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&inventory).unwrap()
-    );
+    println!("{}", serde_json::to_string_pretty(&inventory).unwrap());
 }
