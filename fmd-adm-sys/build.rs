@@ -4,5 +4,5 @@ fn main() {
     // Emit metadata so downstream crates can configure RPATH for the
     // non-standard /usr/lib/fm/amd64 location. Cargo exposes this to
     // direct dependents as the env var DEP_FMD_ADM_LIBDIRS.
-    println!("cargo:metadata=LIBDIRS=/usr/lib/fm/amd64");
+    println!("cargo:LIBDIRS=/usr/lib/fm/amd64");
 }
