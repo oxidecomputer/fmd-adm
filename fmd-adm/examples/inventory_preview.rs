@@ -4,7 +4,7 @@
 //! cases are collected with their full event nvlists serialized to JSON,
 //! and resources are collected with their fault status flags.
 
-use fmd_adm::{FmdAdm, NvList, NvValue};
+use fmd_adm::{FmdAdm, InvisibleResources, NvList, NvValue};
 
 fn nvvalue_to_json(value: &NvValue) -> serde_json::Value {
     match value {
@@ -72,7 +72,9 @@ fn main() {
         .collect();
 
     // Collect resources — same as omicron's FmdResource
-    let resources = adm.resources(true).expect("failed to list resources");
+    let resources = adm
+        .resources(InvisibleResources::Included)
+        .expect("failed to list resources");
     let resources_json: Vec<serde_json::Value> = resources
         .iter()
         .map(|r| {

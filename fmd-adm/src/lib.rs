@@ -25,6 +25,27 @@ pub enum Error {
     Uuid(#[from] uuid::Error),
 }
 
+/// Whether to include resources flagged as invisible when listing or counting.
+///
+/// FMD marks some resources as "invisible" — they exist in the daemon's
+/// internal model but aren't exposed to typical administrative tools. Callers
+/// usually want only directly-visible resources; pass `Included` to also
+/// surface the invisible ones.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InvisibleResources {
+    Included,
+    Excluded,
+}
+
+impl InvisibleResources {
+    fn as_c_int(self) -> std::os::raw::c_int {
+        match self {
+            InvisibleResources::Included => 1,
+            InvisibleResources::Excluded => 0,
+        }
+    }
+}
+
 /// A handle to the Fault Management Daemon administrative interface.
 ///
 /// This handle wraps a C `fmd_adm_t` pointer that is not thread-safe.
@@ -109,8 +130,9 @@ impl FmdAdm {
 
     /// Iterate over faulty resources.
     ///
-    /// If `all` is true, includes resources that are not directly visible.
-    pub fn resources(&self, all: bool) -> Result<Vec<ResourceInfo>, Error> {
+    /// `include` controls whether resources flagged as invisible are surfaced
+    /// alongside directly-visible ones.
+    pub fn resources(&self, include: InvisibleResources) -> Result<Vec<ResourceInfo>, Error> {
         // Collect raw strings from the callback, then parse UUIDs
         // afterwards so we can propagate errors.
         struct RawResourceInfo {
@@ -142,7 +164,7 @@ impl FmdAdm {
         let rc = unsafe {
             fmd_adm_sys::fmd_adm_rsrc_iter(
                 self.handle,
-                if all { 1 } else { 0 },
+                include.as_c_int(),
                 Some(callback),
                 &mut raw as *mut _ as *mut c_void,
             )
@@ -166,11 +188,10 @@ impl FmdAdm {
     }
 
     /// Get the count of faulty resources.
-    pub fn resource_count(&self, all: bool) -> Result<u32, Error> {
+    pub fn resource_count(&self, include: InvisibleResources) -> Result<u32, Error> {
         let mut count: u32 = 0;
-        let rc = unsafe {
-            fmd_adm_sys::fmd_adm_rsrc_count(self.handle, if all { 1 } else { 0 }, &mut count)
-        };
+        let rc =
+            unsafe { fmd_adm_sys::fmd_adm_rsrc_count(self.handle, include.as_c_int(), &mut count) };
         if rc != 0 {
             return Err(Error::Fmd(self.errmsg()));
         }
@@ -616,17 +637,23 @@ mod tests {
     #[test]
     fn list_resources() {
         let adm = FmdAdm::open().expect("failed to open fmd handle");
-        let _resources = adm.resources(false).expect("failed to list resources");
-        let _all = adm.resources(true).expect("failed to list all resources");
+        let _resources = adm
+            .resources(InvisibleResources::Excluded)
+            .expect("failed to list resources");
+        let _all = adm
+            .resources(InvisibleResources::Included)
+            .expect("failed to list all resources");
     }
 
     #[test]
     fn resource_count_matches_resources() {
         let adm = FmdAdm::open().expect("failed to open fmd handle");
         let count = adm
-            .resource_count(false)
+            .resource_count(InvisibleResources::Excluded)
             .expect("failed to get resource count");
-        let resources = adm.resources(false).expect("failed to list resources");
+        let resources = adm
+            .resources(InvisibleResources::Excluded)
+            .expect("failed to list resources");
         assert_eq!(
             count as usize,
             resources.len(),

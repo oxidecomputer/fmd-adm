@@ -1,4 +1,4 @@
-use fmd_adm::{FmdAdm, NvValue};
+use fmd_adm::{FmdAdm, InvisibleResources, NvValue};
 
 fn main() {
     let adm = FmdAdm::open().expect("failed to open fmd adm handle");
@@ -17,7 +17,9 @@ fn main() {
     println!("({} modules total)", modules.len());
 
     println!("\n=== Faulty Resources ===");
-    let resources = adm.resources(true).expect("failed to list resources");
+    let resources = adm
+        .resources(InvisibleResources::Included)
+        .expect("failed to list resources");
     if resources.is_empty() {
         println!("  (none)");
     } else {

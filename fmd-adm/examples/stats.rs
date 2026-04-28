@@ -1,14 +1,18 @@
-use fmd_adm::FmdAdm;
+use fmd_adm::{FmdAdm, InvisibleResources};
 
 fn main() {
     let adm = FmdAdm::open().expect("failed to open fmd adm handle");
 
     // Validate resource_count against resources().len()
-    let resources = adm.resources(true).expect("failed to list resources");
-    let count = adm.resource_count(true).expect("failed to count resources");
+    let resources = adm
+        .resources(InvisibleResources::Included)
+        .expect("failed to list resources");
+    let count = adm
+        .resource_count(InvisibleResources::Included)
+        .expect("failed to count resources");
     println!("=== Resources ===");
     println!(
-        "  resources(all=true).len() = {}, resource_count(all=true) = {}",
+        "  resources(Included).len() = {}, resource_count(Included) = {}",
         resources.len(),
         count,
     );
